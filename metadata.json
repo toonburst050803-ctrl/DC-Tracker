@@ -1,0 +1,7 @@
+{
+  "name": "DC tracker",
+  "description": "A professional personal expense tracking assistant that uses Gemini AI to process receipts and categorize spending with strict accuracy.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
