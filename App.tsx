@@ -14,6 +14,7 @@ const App: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [incomeEntries, setIncomeEntries] = useState<IncomeEntry[]>([]);
   const [salary, setSalary] = useState<number>(22000);
+  const [lastLocalUpdate, setLastLocalUpdate] = useState<number>(Date.now());
   
   const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'insights'>('dashboard');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<HTMLInputElement>(null);
 
   const [userEmail, setUserEmail] = useState<string | null>(localStorage.getItem('deepan_user_email'));
   const [syncId, setSyncId] = useState<string | null>(localStorage.getItem('deepan_sync_id'));
@@ -28,6 +30,7 @@ const App: React.FC = () => {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Initial Load
   useEffect(() => {
     const savedExpenses = localStorage.getItem('deepan_expenses');
     const savedIncome = localStorage.getItem('deepan_income_entries');
@@ -40,16 +43,36 @@ const App: React.FC = () => {
     if (syncId) handlePull();
   }, []);
 
+  // Background Polling and Focus Sync
+  useEffect(() => {
+    if (!syncId) return;
+
+    const onFocus = () => handlePull();
+    window.addEventListener('focus', onFocus);
+
+    const interval = setInterval(() => {
+      handlePull();
+    }, 45000);
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      clearInterval(interval);
+    };
+  }, [syncId, lastLocalUpdate]);
+
+  // Auto-Save / Push Trigger
   useEffect(() => {
     localStorage.setItem('deepan_expenses', JSON.stringify(expenses));
     localStorage.setItem('deepan_income_entries', JSON.stringify(incomeEntries));
     localStorage.setItem('deepan_salary', salary.toString());
     
+    setLastLocalUpdate(Date.now());
+
     if (syncId) {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
       syncTimerRef.current = setTimeout(() => {
         handlePush();
-      }, 1500);
+      }, 1200);
     }
   }, [expenses, incomeEntries, salary, syncId]);
 
@@ -57,7 +80,12 @@ const App: React.FC = () => {
     if (!syncId) return;
     setSyncStatus('syncing');
     try {
-      const payload: SyncPayload = { expenses, incomeEntries, salary, lastUpdated: new Date().toISOString() };
+      const payload: SyncPayload = { 
+        expenses, 
+        incomeEntries, 
+        salary, 
+        lastUpdated: new Date().toISOString() 
+      };
       await syncService.pushData(syncId, payload);
       setSyncStatus('idle');
     } catch (e) {
@@ -70,10 +98,14 @@ const App: React.FC = () => {
     setSyncStatus('syncing');
     try {
       const data = await syncService.pullData(syncId);
-      if (data) {
-        setExpenses(data.expenses);
-        setIncomeEntries(data.incomeEntries);
-        setSalary(data.salary);
+      if (data && data.lastUpdated) {
+        const remoteTime = new Date(data.lastUpdated).getTime();
+        if (remoteTime > lastLocalUpdate + 1000) {
+          setExpenses(data.expenses);
+          setIncomeEntries(data.incomeEntries);
+          setSalary(data.salary);
+          setLastLocalUpdate(remoteTime);
+        }
       }
       setSyncStatus('idle');
     } catch (e) {
@@ -83,6 +115,7 @@ const App: React.FC = () => {
 
   const handleLogin = async (email: string) => {
     const sid = syncService.getSyncId(email);
+    localStorage.removeItem(`deepan_vault_mapping_${sid}`);
     setUserEmail(email);
     setSyncId(sid);
     localStorage.setItem('deepan_user_email', email);
@@ -95,13 +128,15 @@ const App: React.FC = () => {
         setExpenses(data.expenses);
         setIncomeEntries(data.incomeEntries);
         setSalary(data.salary);
+        setLastLocalUpdate(new Date(data.lastUpdated).getTime());
+      } else {
+        await syncService.initializeVault(sid, {
+          expenses, incomeEntries, salary, lastUpdated: new Date().toISOString()
+        });
       }
       setSyncStatus('idle');
     } catch (e) {
-      await syncService.initializeVault(sid, {
-        expenses, incomeEntries, salary, lastUpdated: new Date().toISOString()
-      });
-      setSyncStatus('idle');
+      setSyncStatus('error');
     }
   };
 
@@ -135,17 +170,14 @@ const App: React.FC = () => {
     });
   }, []);
 
-  // Fix: Missing updateExpense function
   const updateExpense = useCallback((updated: Expense) => {
     setExpenses(prev => prev.map(e => e.id === updated.id ? updated : e));
   }, []);
 
-  // Fix: Missing deleteExpense function
   const deleteExpense = useCallback((id: string) => {
     setExpenses(prev => prev.filter(e => e.id !== id));
   }, []);
 
-  // Fix: Missing addIncomeEntry function
   const addIncomeEntry = useCallback((source: string, amount: number) => {
     const newEntry: IncomeEntry = {
       id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -156,12 +188,10 @@ const App: React.FC = () => {
     setIncomeEntries(prev => [...prev, newEntry]);
   }, []);
 
-  // Fix: Missing updateIncomeEntry function
   const updateIncomeEntry = useCallback((id: string, source: string, amount: number) => {
     setIncomeEntries(prev => prev.map(entry => entry.id === id ? { ...entry, source, amount } : entry));
   }, []);
 
-  // Fix: Missing deleteIncomeEntry function
   const deleteIncomeEntry = useCallback((id: string) => {
     setIncomeEntries(prev => prev.filter(entry => entry.id !== id));
   }, []);
@@ -209,6 +239,15 @@ const App: React.FC = () => {
     finally { setIsProcessing(false); }
   };
 
+  const handleQuickAdd = (text: string) => {
+    setChatInput(`${text} `);
+    // Focus the input and scroll to it
+    setTimeout(() => {
+      chatInputRef.current?.focus();
+      chatInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/60 px-4 md:px-8 py-3 flex items-center justify-between shadow-sm">
@@ -251,7 +290,19 @@ const App: React.FC = () => {
       </header>
 
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 pt-6 pb-48 md:pb-32">
-        {activeTab === 'dashboard' && <Dashboard expenses={expenses} salary={salary} onUpdateSalary={setSalary} incomeEntries={incomeEntries} onAddIncome={addIncomeEntry} onUpdateIncome={updateIncomeEntry} onDeleteIncome={deleteIncomeEntry} onQuickAdd={(i) => setChatInput(`${i} `)} />}
+        {activeTab === 'dashboard' && (
+          <Dashboard 
+            expenses={expenses} 
+            salary={salary} 
+            onUpdateSalary={setSalary} 
+            incomeEntries={incomeEntries} 
+            onAddIncome={addIncomeEntry} 
+            onUpdateIncome={updateIncomeEntry} 
+            onDeleteIncome={deleteIncomeEntry} 
+            onQuickAdd={handleQuickAdd}
+            onViewHistory={() => setActiveTab('daily')}
+          />
+        )}
         {activeTab === 'daily' && <ExpenseTable expenses={expenses} onDelete={deleteExpense} onUpdate={updateExpense} />}
         {activeTab === 'insights' && <InsightsView expenses={expenses} />}
       </main>
@@ -275,7 +326,15 @@ const App: React.FC = () => {
         <div className="px-4 py-4 md:px-8 max-w-4xl mx-auto flex items-center gap-3">
           <form onSubmit={handleChatSubmit} className="flex-1 flex items-center gap-2 bg-slate-100/80 border border-slate-200 rounded-[2rem] px-5 py-2 focus-within:ring-4 focus-within:ring-blue-500/10 focus-within:bg-white transition-all shadow-inner">
             <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-slate-500 hover:text-blue-600 rounded-full transition-all"><Camera size={20} /></button>
-            <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Biryani 350..." className="flex-1 bg-transparent border-none outline-none py-1.5 text-slate-800 font-bold placeholder:text-slate-300" disabled={isProcessing} />
+            <input 
+              ref={chatInputRef}
+              type="text" 
+              value={chatInput} 
+              onChange={(e) => setChatInput(e.target.value)} 
+              placeholder="Biryani 350..." 
+              className="flex-1 bg-transparent border-none outline-none py-1.5 text-slate-800 font-bold placeholder:text-slate-300 focus:ring-0" 
+              disabled={isProcessing} 
+            />
             <button type="submit" disabled={!chatInput.trim() || isProcessing} className={`p-2 rounded-full transition-all ${!chatInput.trim() || isProcessing ? 'text-slate-300' : 'bg-blue-600 text-white shadow-lg'}`}>{isProcessing ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Send size={20} />}</button>
           </form>
           <button onClick={() => setIsAddModalOpen(true)} className="p-3.5 bg-slate-900 text-white rounded-full shadow-xl active:scale-90 transition-all"><Plus size={24} strokeWidth={3} /></button>
