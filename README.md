@@ -1,20 +1,19 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# @babel/types
 
-# Run and deploy your AI Studio app
+> Babel Types is a Lodash-esque utility library for AST nodes
 
-This contains everything you need to run your app locally.
+See our website [@babel/types](https://babeljs.io/docs/babel-types) for more information or the [issues](https://github.com/babel/babel/issues?utf8=%E2%9C%93&q=is%3Aissue+label%3A%22pkg%3A%20types%22+is%3Aopen) associated with this package.
 
-View your app in AI Studio: https://ai.studio/apps/drive/15dkXwgL5meUDagca6tfquRzM_bRtTl-n
+## Install
 
-## Run Locally
+Using npm:
 
-**Prerequisites:**  Node.js
+```sh
+npm install --save-dev @babel/types
+```
 
+or using yarn:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```sh
+yarn add @babel/types --dev
+```
